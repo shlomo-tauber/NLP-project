@@ -1,0 +1,6 @@
+numpy~=1.26.4
+arxiv
+pandas
+transformers
+torch
+tqdm
