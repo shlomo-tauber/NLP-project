@@ -4,6 +4,10 @@ from transformers import AutoTokenizer, AutoModel
 import torch
 from tqdm import tqdm
 
+# Load a pre-trained NLP model (SciBERT for scientific text embedding)
+tokenizer = AutoTokenizer.from_pretrained("allenai/scibert_scivocab_uncased")
+model = AutoModel.from_pretrained("allenai/scibert_scivocab_uncased")
+
 
 def fetch_arxiv_metadata(query, max_results=500):
     search = arxiv.Search(
@@ -20,7 +24,7 @@ def fetch_arxiv_metadata(query, max_results=500):
     return pd.DataFrame(metadata)
 
 
-def embed_text(text, tokenizer, model):
+def embed_text(text):
     """
     Embed text (metadata) into vector space
     """
@@ -41,16 +45,12 @@ def embed_metadata(query, max_results):
     # Fetch metadata from the ArXiv API
     df = fetch_arxiv_metadata(query, max_results)
 
-    # Load a pre-trained NLP model (SciBERT for scientific text embedding)
-    tokenizer = AutoTokenizer.from_pretrained("allenai/scibert_scivocab_uncased")
-    model = AutoModel.from_pretrained("allenai/scibert_scivocab_uncased")\
-
     # Embed the titles and abstracts into vector space
     embeddings = []
     for index, row in tqdm(df.iterrows(), total=len(df)):
         # Combine title and abstract to embed them together
         text_to_embed = row['title'] + " " + row['abstract']
-        embedding = embed_text(text_to_embed, tokenizer, model)
+        embedding = embed_text(text_to_embed)
         embeddings.append(embedding)
 
     # Convert embeddings list to a tensor
