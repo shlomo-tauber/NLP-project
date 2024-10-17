@@ -7,3 +7,4 @@ tqdm
 pylatexenc
 pinecone
 pinecone-client[grpc]
+datasets
