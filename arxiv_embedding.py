@@ -3,6 +3,7 @@ import pandas as pd
 from transformers import AutoTokenizer, AutoModel
 import torch
 from tqdm import tqdm
+from datasets import Dataset
 
 EMBEDDING_DIM = 768
 # Load a pre-trained NLP model (SciBERT for scientific text embedding)
@@ -38,20 +39,30 @@ def embed_text(text):
     embeddings = outputs.last_hidden_state[:, 0, :]
     return embeddings
 
+def embed_parallel(texts):
+    """
+    Embed multiple texts in parallel
+    """
+    inputs = tokenizer(texts, return_tensors='pt', truncation=True, padding=True, max_length=512, return_attention_mask=True)
+    with torch.no_grad():
+        outputs = model(**inputs)
+    embeddings = outputs.last_hidden_state[:, 0, :]
+    return embeddings
 
-def embed_metadata(query, max_results):
+def embed_metadata(query, max_results, load_cache=True):
     """
     Embed arxiv metadata (title and abstract) into a vector space, and save them into pt file
     :param query: Subject of papers to embed
     :param max_results: Number of papers to embed
     """
     # Check if the embeddings have already been computed
-    try:
-        all_embeddings = torch.load(f"arxiv_metadata_embeddings_{query}.pt")
-        metadatas = pd.read_csv(f"arxiv_metadata_{query}.csv").to_dict(orient='records')
-        return metadatas, all_embeddings
-    except FileNotFoundError:
-        pass
+    if load_cache:
+        try:
+            all_embeddings = torch.load(f"arxiv_metadata_embeddings_{query}.pt")
+            metadatas = pd.read_csv(f"arxiv_metadata_{query}.csv").to_dict(orient='records')
+            return metadatas, all_embeddings
+        except FileNotFoundError:
+            pass
     
     # Fetch metadata from the ArXiv API
     df = fetch_arxiv_metadata(query, max_results)
@@ -59,15 +70,22 @@ def embed_metadata(query, max_results):
     # Embed the titles and abstracts into vector space
     embeddings = []
     metadatas = []
-    for index, row in tqdm(df.iterrows(), total=len(df)):
+    dataset = Dataset.from_pandas(df)
+
+    """for index, row in tqdm(df.iterrows(), total=len(df)):
         # Combine title and abstract to embed them together
         text_to_embed = row['title'] + " " + row['abstract']
         embedding = embed_text(text_to_embed)
         embeddings.append(embedding)
         metadatas.append(row.to_dict())
+    """
+    dataset.with_format("torch")
+    dataset = dataset.map(lambda x: {'content': x['title'] + " " + x['abstract']})
+    dataset = dataset.map(lambda b: {'embeddings': embed_parallel(b['content']) }, batched=True)
+    metadatas = df.to_dict(orient='records')
 
     # Convert embeddings list to a tensor
-    all_embeddings = torch.cat(embeddings)
+    all_embeddings = dataset['embeddings']
 
     # Save the embeddings to disk for future use
     torch.save(all_embeddings, f"arxiv_metadata_embeddings_{query}.pt")
@@ -75,7 +93,7 @@ def embed_metadata(query, max_results):
     # Save metadatas
     pd.DataFrame(metadatas).to_csv(f"arxiv_metadata_{query}.csv", index=False)
 
-    return metadatas, all_embeddings
+    return metadatas, dataset['embeddings']
 
 
 if __name__ == '__main__':
