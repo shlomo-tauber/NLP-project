@@ -13,8 +13,8 @@ class RAGRetriever:
         self.index = get_or_create_index(self.pc, self.index_name, EMBEDDING_DIM)
 
     def retrieve_relevant_papers(self, query, top_k=3):
-        query_embedding = embed_text(query)
-        vectors = self.index.query(query_embedding, top_k=top_k)
+        query_embedding = embed_text(query).squeeze()
+        vectors = self.index.query(vector=query_embedding.tolist(), namespace="arxiv-metadata", top_k=top_k)
         return vectors
     
 def retrieve_relevant_papers(query, index, top_k=3):
@@ -109,12 +109,13 @@ PROMPT_TEMPLATE = "You are given an excerpt from a paper, where a citation was d
 
 class CitationFinder:
     def __init__(self):
-        self.model = AutoModelForCausalLM.from_pretrained("microsoft/Phi-3-mini-128k-instruct", trust_remote_code=True, torch_dtype=torch.bfloat16, device_map="auto")
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model)
+        model_name = "microsoft/Phi-3-mini-128k-instruct"
+        self.model = AutoModelForCausalLM.from_pretrained("microsoft/Phi-3-mini-128k-instruct", trust_remote_code=True, torch_dtype="auto", device_map="auto")
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.pipeline = transformers.pipeline(
             "text-generation",
             model=self.model,
-            torch_dtype=torch.float16,
+            tokenizer=self.tokenizer,
             device_map="auto",
         )
         self.retriever = RAGRetriever()
@@ -133,13 +134,16 @@ class CitationFinder:
             "temperature": 0.0, 
             "do_sample": False, 
         } 
-        return self.pipeline(input, **generation_args)[0]['generated_text']
+        return self.pipeline(input[-1], **generation_args)[0]['generated_text']
         
     def find_citation(self, excerpt):
         messages = [PROMPT_TEMPLATE.format(excerpt=excerpt)]
         search_query = self.ask_model(*messages)
         messages.append(search_query)
         related_papers = self.retriever.retrieve_relevant_papers(search_query)
-        messages.append(related_papers)
+        #print(related_papers)
+        titles = [paper['metadata']['title'] for paper in related_papers['matches']]
+        select_paper_message = '\n'.join(map(lambda i, title: f"{i}. {title}", enumerate(titles)))
+        messages.append(select_paper_message)
         citation = self.ask_model(*messages)
         return citation, messages
