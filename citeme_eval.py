@@ -1,12 +1,15 @@
 from datasets import load_dataset
 from RAG import CitationFinder
 
-
-def eval(split):
+def dataset(split):
     ds = load_dataset("bethgelab/CiteME")
     # filter rows from "train" by feature "split"
     ds = ds['train'].filter(lambda x: x['split'] == split)
+    return ds
 
+
+def eval(split):
+    ds = dataset(split)
     agent = CitationFinder()
     for i, row in enumerate(ds):
         if i > 0:
