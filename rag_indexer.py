@@ -43,14 +43,18 @@ def build_semanticscholar_offline_dataset(limit=10000000):
         pass
 
     sch = SemanticScholarWrapper()
-    def gen():
+    def gen(shards):
         i = 0
-        for x in sch.bulk_search(query="", fields_of_study=["Computer Science"], year="2018-"):
-            if i > limit:
-                break
-            i += 1
-            yield dict(x)
-    ds = datasets.Dataset.from_generator(gen)
+        for year in shards:
+            for x in sch.bulk_search(query="", fields_of_study=["Computer Science"], year=str(year)):
+                if i > limit:
+                    break
+                i += 1
+                yield dict(x)
+                datasets.IterableDataset
+    ds = datasets.Dataset.from_generator(gen, gen_kwargs={
+        "shards": list(range(2018, 2025)),
+    }, num_proc=4)
     ds.save_to_disk("semanticscholar_dataset")
     return ds
 
