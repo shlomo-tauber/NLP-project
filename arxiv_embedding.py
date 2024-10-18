@@ -7,8 +7,8 @@ from datasets import Dataset
 
 EMBEDDING_DIM = 768
 # Load a pre-trained NLP model (SciBERT for scientific text embedding)
-tokenizer = AutoTokenizer.from_pretrained("allenai/scibert_scivocab_uncased")
-model = AutoModel.from_pretrained("allenai/scibert_scivocab_uncased")
+tokenizer = AutoTokenizer.from_pretrained("allenai/scibert_scivocab_uncased", device_map="auto")
+model = AutoModel.from_pretrained("allenai/scibert_scivocab_uncased", device_map="auto")
 client = arxiv.Client()
 
 def fetch_arxiv_metadata(query, max_results=500):
