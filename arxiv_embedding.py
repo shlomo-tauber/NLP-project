@@ -32,7 +32,7 @@ def embed_text(text):
     """
     Embed text (metadata) into vector space
     """
-    inputs = tokenizer(text, return_tensors='pt', truncation=True, padding=True, max_length=512)
+    inputs = tokenizer(text, return_tensors='pt', truncation=True, padding=True, max_length=512).to(model.device)
     with torch.no_grad():
         outputs = model(**inputs)
     # Use the CLS token embedding as a representation of the text
@@ -43,7 +43,7 @@ def embed_parallel(texts):
     """
     Embed multiple texts in parallel
     """
-    inputs = tokenizer(texts, return_tensors='pt', truncation=True, padding=True, max_length=512, return_attention_mask=True)
+    inputs = tokenizer(texts, return_tensors='pt', truncation=True, padding=True, max_length=512, return_attention_mask=True).to(model.device)
     with torch.no_grad():
         outputs = model(**inputs)
     embeddings = outputs.last_hidden_state[:, 0, :]
