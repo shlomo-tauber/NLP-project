@@ -8,3 +8,4 @@ pylatexenc
 pinecone
 pinecone-client[grpc]
 datasets
+flash_attn
