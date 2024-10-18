@@ -9,7 +9,7 @@ from pinecone_db import get_pinecone_client, get_or_create_index
 class RAGRetriever:
     def __init__(self):
         self.pc = get_pinecone_client()
-        self.index_name = "arxiv-index"
+        self.index_name = "arxiv-index-17-10-2024"
         self.index = get_or_create_index(self.pc, self.index_name, EMBEDDING_DIM)
 
     def retrieve_relevant_papers(self, query, top_k=3):
@@ -104,7 +104,7 @@ def find_citetion_of_query(query):
         file.write(sequences['generated_text'] + '\n')
 
 PROMPT_TEMPLATE = "You are given an excerpt from a paper, where a citation was deleted. I'm trying to find the citation (ignore the word [CITATION], that's just where the citation was deleted from. You will be asked to help me find the paper from which the citation was deleted.\n" \
-    "You can ask me a search query and I will try to find related papers. You have to do it exactly once. After that, you will be asked to provide the citation. If you don't know the citation, you can say 'I don't know'.\n" \
+    "You can ask me a search query and I will try to find related papers. I can't give you more data from the paper, or any data about the cited paper. You have to do it exactly once. After that, you will be asked to provide the citation. If you don't know the citation, you can say 'I don't know'.\n" \
     "Excerpt: {excerpt}\n"
 
 class CitationFinder:
@@ -134,16 +134,21 @@ class CitationFinder:
             "temperature": 0.0, 
             "do_sample": False, 
         } 
-        return self.pipeline(input[-1], **generation_args)[0]['generated_text']
+        return self.pipeline(messages, **generation_args)[0]['generated_text']
         
     def find_citation(self, excerpt):
         messages = [PROMPT_TEMPLATE.format(excerpt=excerpt)]
         search_query = self.ask_model(*messages)
         messages.append(search_query)
+        print(search_query)
         related_papers = self.retriever.retrieve_relevant_papers(search_query)
-        #print(related_papers)
+        print(related_papers)
         titles = [paper['metadata']['title'] for paper in related_papers['matches']]
         select_paper_message = '\n'.join(map(lambda i, title: f"{i}. {title}", enumerate(titles)))
-        messages.append(select_paper_message)
+        if not related_papers['matches']:
+            select_paper_message = 'No papers found'
+        messages.append(select_paper_message + '\nNow guess the cited paper title?')
+        print(select_paper_message)
         citation = self.ask_model(*messages)
+        print(citation)
         return citation, messages
