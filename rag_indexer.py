@@ -70,20 +70,23 @@ def semanticscholar_embedding_content(row):
         content += " " + row['abstract']
     return { 'content': content }
 
-def build_semanticscholar_index():
-    dataset = build_semanticscholar_offline_dataset()
-    dataset.with_format("torch")
-    dataset = dataset.map(semanticscholar_embedding_content)
-    dataset = dataset.map(lambda b: {'embeddings': embed_parallel(b['content']) }, batched=True, batch_size=250)
-    pc = get_pinecone_client()
-    index_name = f"semanticscholar-index-{datetime.now().strftime('%m-%d-%Y')}"
-    index = get_or_create_index(pc, index_name, EMBEDDING_DIM)
-    vectors = map(get_semanticscholar_record, dataset)
+def index_batch(index, b):
+    vectors = map(get_semanticscholar_record, b)
     index.upsert(
         vectors=vectors,
         namespace="semanticscholar-metadata",
     )
-    print(f"Index {index_name} has been updated with {len(dataset)} papers.")
+
+def build_semanticscholar_index():
+    pc = get_pinecone_client()
+    index_name = f"semanticscholar-index-{datetime.now().strftime('%m-%d-%Y')}"
+    index = get_or_create_index(pc, index_name, EMBEDDING_DIM)
+
+    dataset = build_semanticscholar_offline_dataset()
+    dataset.with_format("torch")
+    dataset = dataset.map(semanticscholar_embedding_content)
+    dataset = dataset.map(lambda b: {'embeddings': embed_parallel(b['content']) }, batched=True, batch_size=250)
+    dataset.map(lambda b: index_batch(index, b), batched=True, batch_size=250)
 
 if __name__ == "__main__":
     #build_arxiv_index()
