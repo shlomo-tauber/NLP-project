@@ -3,7 +3,6 @@ from pinecone_db import get_pinecone_client, get_or_create_index
 from datetime import datetime
 from semanticscholar_wrapper import SemanticScholarWrapper
 import datasets
-import itertools
 
 def get_record(embedding, metadata):
     filtered_metadata_columns = ["id", "categories", "title"]
@@ -36,7 +35,7 @@ def build_arxiv_index():
     )
     print(f"Index {index_name} has been updated with {len(metadatas)} papers.")
 
-def build_semanticscholar_offline_dataset():
+def build_semanticscholar_offline_dataset(limit=10000000):
     try:
         ds = datasets.load_from_disk("semanticscholar_dataset")
         return ds
@@ -47,7 +46,7 @@ def build_semanticscholar_offline_dataset():
     def gen():
         i = 0
         for x in sch.bulk_search(query="", fields_of_study=["Computer Science"], year="2018-"):
-            if i > 3000:
+            if i > limit:
                 break
             i += 1
             yield dict(x)
@@ -58,7 +57,7 @@ def build_semanticscholar_offline_dataset():
 
 def get_semanticscholar_record(row):
     filtered_metadata_columns = ["paperId", "title", "fieldsOfStudy"]
-    metadata = {k: v for k, v in metadata.items() if k in filtered_metadata_columns}
+    metadata = {k: v for k, v in row.items() if k in filtered_metadata_columns}
     return {
         "id": f"{row['paperId']}#semanticscholar-metadata#scibert",
         "values": row['embeddings'],
@@ -75,7 +74,7 @@ def build_semanticscholar_index():
     dataset = build_semanticscholar_offline_dataset()
     dataset.with_format("torch")
     dataset = dataset.map(semanticscholar_embedding_content)
-    dataset = dataset.map(lambda b: {'embeddings': embed_parallel(b['content']) }, batched=True, batch_size=50)
+    dataset = dataset.map(lambda b: {'embeddings': embed_parallel(b['content']) }, batched=True, batch_size=250)
     pc = get_pinecone_client()
     index_name = f"semanticscholar-index-{datetime.now().strftime('%m-%d-%Y')}"
     index = get_or_create_index(pc, index_name, EMBEDDING_DIM)
