@@ -9,12 +9,12 @@ from pinecone_db import get_pinecone_client, get_or_create_index
 class RAGRetriever:
     def __init__(self):
         self.pc = get_pinecone_client()
-        self.index_name = "arxiv-index-17-10-2024"
+        self.index_name = "arxiv-index-10-17-2024"
         self.index = get_or_create_index(self.pc, self.index_name, EMBEDDING_DIM)
 
     def retrieve_relevant_papers(self, query, top_k=3):
         query_embedding = embed_text(query).squeeze()
-        vectors = self.index.query(vector=query_embedding.tolist(), namespace="arxiv-metadata", top_k=top_k)
+        vectors = self.index.query(vector=query_embedding.tolist(), namespace="arxiv-metadata", top_k=top_k, include_metadata=True)
         return vectors
     
 def retrieve_relevant_papers(query, index, top_k=3):
@@ -144,7 +144,7 @@ class CitationFinder:
         related_papers = self.retriever.retrieve_relevant_papers(search_query)
         print(related_papers)
         titles = [paper['metadata']['title'] for paper in related_papers['matches']]
-        select_paper_message = '\n'.join(map(lambda i, title: f"{i}. {title}", enumerate(titles)))
+        select_paper_message = '\n'.join([f"{i}. {title}" for (i, title) in enumerate(titles)])
         if not related_papers['matches']:
             select_paper_message = 'No papers found'
         messages.append(select_paper_message + '\nNow guess the cited paper title?')
