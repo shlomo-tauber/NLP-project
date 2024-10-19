@@ -1,23 +1,26 @@
-from arxiv_embedding import embed_text
-import arxiv
-from pylatexenc.latex2text import LatexNodes2Text
-from transformers import AutoTokenizer
+#from arxiv_embedding import embed_text, EMBEDDING_DIM
+from transformers import AutoTokenizer, AutoModelForCausalLM
 import transformers
 import torch
+from pinecone_db import get_pinecone_client, get_or_create_index
+from specter_embedding import Specter2AdhocQuery
 
+class RAGRetriever:
+    def __init__(self):
+        self.pc = get_pinecone_client()
+        self.index_name = "semanticscholar-index-specter2-10-19-2024"
+        self.embedding_model = Specter2AdhocQuery()
+        self.index = get_or_create_index(self.pc, self.index_name, self.embedding_model.embedding_dim())
 
-def retrieve_relevant_papers(query, index, top_k=3):
-    """
-    The function retrive relevant title and citetion according the query.
-    """
-    # Generate the embedding for the query
-    query_embedding = embed_text(query)
-
-    # Search in the FAISS index for similar papers
-    # Todo: add the search according to a model
-
+    def retrieve_relevant_papers(self, query, top_k=3):
+        query_embedding = self.embedding_model.embed_parallel(query).squeeze()
+        vectors = self.index.query(vector=query_embedding.tolist(), namespace="semanticscholar-metadata", top_k=top_k, include_metadata=True)
+        return vectors
+    
 
 def get_paper_citation_by_title(title, number_of_citations=10):
+    import arxiv
+    from pylatexenc.latex2text import LatexNodes2Text
     # Search for the paper using its title
     res = []
     search = arxiv.Search(
@@ -90,3 +93,53 @@ def find_citetion_of_query(query):
     filename = f"citetions of {query}"
     with open(filename, 'w') as file:
         file.write(sequences['generated_text'] + '\n')
+
+PROMPT_TEMPLATE = "You are given an excerpt from a paper, where a citation was deleted. I'm trying to find the citation (ignore the word [CITATION], that's just where the citation was deleted from. You will be asked to help me find the paper from which the citation was deleted.\n" \
+    "You can ask me a search query and I will try to find related papers. I can't give you more data from the paper, or any data about the cited paper. You have to do it exactly once. After that, you will be asked to provide the citation. If you don't know the citation, you can say 'I don't know'.\n" \
+    "Excerpt: {excerpt}\n"
+
+class CitationFinder:
+    def __init__(self):
+        model_name = "microsoft/Phi-3-mini-128k-instruct"
+        self.model = AutoModelForCausalLM.from_pretrained("microsoft/Phi-3-mini-128k-instruct", trust_remote_code=True, torch_dtype="auto", device_map="auto")
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.pipeline = transformers.pipeline(
+            "text-generation",
+            model=self.model,
+            tokenizer=self.tokenizer,
+            device_map="auto",
+        )
+        self.retriever = RAGRetriever()
+
+    def ask_model(self, *input):
+        messages = [
+            { "role": "system", "content": "You are a helpful AI assistant." },
+        ]
+        for i, message in enumerate(input):
+            role = "user" if i % 2 == 0 else "assistant"
+            messages.append({ "role": role, "content": message })
+        
+        generation_args = { 
+            "max_new_tokens": 500, 
+            "return_full_text": False, 
+            "temperature": 0.0, 
+            "do_sample": False, 
+        } 
+        return self.pipeline(messages, **generation_args)[0]['generated_text']
+        
+    def find_citation(self, excerpt):
+        messages = [PROMPT_TEMPLATE.format(excerpt=excerpt)]
+        search_query = self.ask_model(*messages)
+        messages.append(search_query)
+        print(search_query)
+        related_papers = self.retriever.retrieve_relevant_papers(search_query)
+        print(related_papers)
+        titles = [paper['metadata']['title'] for paper in related_papers['matches']]
+        select_paper_message = '\n'.join([f"{i}. {title}" for (i, title) in enumerate(titles)])
+        if not related_papers['matches']:
+            select_paper_message = 'No papers found'
+        messages.append(select_paper_message + '\nNow guess the cited paper title?')
+        print(select_paper_message)
+        citation = self.ask_model(*messages)
+        print(citation)
+        return citation, messages
