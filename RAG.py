@@ -1,35 +1,26 @@
-from arxiv_embedding import embed_text, EMBEDDING_DIM
-import arxiv
-from pylatexenc.latex2text import LatexNodes2Text
+#from arxiv_embedding import embed_text, EMBEDDING_DIM
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import transformers
 import torch
 from pinecone_db import get_pinecone_client, get_or_create_index
+from specter_embedding import Specter2AdhocQuery
 
 class RAGRetriever:
     def __init__(self):
         self.pc = get_pinecone_client()
         self.index_name = "semanticscholar-index-10-19-2024"
-        self.index = get_or_create_index(self.pc, self.index_name, EMBEDDING_DIM)
+        self.embedding_model = Specter2AdhocQuery()
+        self.index = get_or_create_index(self.pc, self.index_name, self.embedding_model.embedding_dim())
 
     def retrieve_relevant_papers(self, query, top_k=3):
-        query_embedding = embed_text(query).squeeze()
+        query_embedding = self.embedding_model.embed_parallel(query).squeeze()
         vectors = self.index.query(vector=query_embedding.tolist(), namespace="semanticscholar-metadata", top_k=top_k, include_metadata=True)
         return vectors
     
-def retrieve_relevant_papers(query, index, top_k=3):
-    """
-    The function retrive relevant title and citetion according the query.
-    """
-    # Generate the embedding for the query
-    query_embedding = embed_text(query)
-
-
-    # Search in the FAISS index for similar papers
-    # Todo: add the search according to a model
-
 
 def get_paper_citation_by_title(title, number_of_citations=10):
+    import arxiv
+    from pylatexenc.latex2text import LatexNodes2Text
     # Search for the paper using its title
     res = []
     search = arxiv.Search(
