@@ -8,7 +8,7 @@ from specter_embedding import Specter2AdhocQuery
 class RAGRetriever:
     def __init__(self):
         self.pc = get_pinecone_client()
-        self.index_name = "semanticscholar-index-10-19-2024"
+        self.index_name = "semanticscholar-index-specter2-10-19-2024"
         self.embedding_model = Specter2AdhocQuery()
         self.index = get_or_create_index(self.pc, self.index_name, self.embedding_model.embedding_dim())
 
