@@ -9,12 +9,12 @@ from pinecone_db import get_pinecone_client, get_or_create_index
 class RAGRetriever:
     def __init__(self):
         self.pc = get_pinecone_client()
-        self.index_name = "arxiv-index-10-17-2024"
+        self.index_name = "semanticscholar-index-10-19-2024"
         self.index = get_or_create_index(self.pc, self.index_name, EMBEDDING_DIM)
 
     def retrieve_relevant_papers(self, query, top_k=3):
         query_embedding = embed_text(query).squeeze()
-        vectors = self.index.query(vector=query_embedding.tolist(), namespace="arxiv-metadata", top_k=top_k, include_metadata=True)
+        vectors = self.index.query(vector=query_embedding.tolist(), namespace="semanticscholar-metadata", top_k=top_k, include_metadata=True)
         return vectors
     
 def retrieve_relevant_papers(query, index, top_k=3):
