@@ -13,4 +13,6 @@ class SemanticScholarWrapper:
             if not p.embedding:
                 return None
             return p.embedding["vector"]
-        return map(get_embedding_vector, papers)
+        # build dict paperId,embedding lazy
+        paper_embeddings = {p.paperId: get_embedding_vector(p) for p in papers}
+        return map(lambda x: paper_embeddings[x] if x in paper_embeddings else None, paper_ids)

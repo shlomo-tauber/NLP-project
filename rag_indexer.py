@@ -4,6 +4,7 @@ from datetime import datetime
 from semanticscholar_wrapper import SemanticScholarWrapper
 import datasets
 from specter_embedding import Specter2Document
+import concurrent
 
 def get_record(embedding, metadata):
     filtered_metadata_columns = ["id", "categories", "title"]
@@ -62,12 +63,12 @@ def build_semanticscholar_offline_dataset(limit=100):
 
 
 def get_semanticscholar_record(embedding_model_name):
-    def map_record(row, embedding):
-        filtered_metadata_columns = ["paperId", "title"]
+    def map_record(row):
+        filtered_metadata_columns = ["paperId", "title", "year", "citationCount"]
         metadata = {k: v for k, v in row.items() if k in filtered_metadata_columns}
         return {
             "id": f"{row['paperId']}#semanticscholar-metadata#{embedding_model_name}",
-            "values": embedding, #row['embeddings'],
+            "values": row['embeddings'],
             "metadata": metadata
         }
     return map_record
@@ -78,29 +79,45 @@ def semanticscholar_embedding_content(row):
         content += " " + row['abstract']
     return content
 
-def index_batch(embedding_model, index, b):
+def embed_batch(embedding_model, b):
     ds = datasets.Dataset.from_dict(b)
     sch = SemanticScholarWrapper()    
     embeddings = sch.get_specter_embeddings(ds['paperId'])
     #embeddings = embedding_model.embed_parallel([semanticscholar_embedding_content(row) for row in ds])
-    vectors = map(get_semanticscholar_record(embedding_model.embedding_model()), ds, embeddings)
-    # skip missing embeddings
-    filtered_vectors = filter(lambda x: x['values'] is not None, vectors)
-    index.upsert(
-        vectors=filtered_vectors,
-        namespace="semanticscholar-metadata",
-    )
+    return { "embeddings": list(embeddings) }
 
 def build_semanticscholar_index(embedding_model):
     pc = get_pinecone_client()
     index_name = f"semanticscholar-index-{embedding_model.embedding_model()}-{datetime.now().strftime('%m-%d-%Y')}"
     index = get_or_create_index(pc, index_name, embedding_model.embedding_dim(), metric=METRIC_L2)
 
-    dataset = build_semanticscholar_offline_dataset()
-    #dataset.with_format("torch")
-    #dataset = dataset.map(semanticscholar_embedding_content)
-    #dataset = dataset.map(lambda b: {'embeddings': embed_parallel(b['content']) }, batched=True, batch_size=250)
-    dataset.map(lambda b: index_batch(embedding_model, index, b), batched=True, batch_size=500)
+    try:
+        dataset = datasets.load_from_disk("semanticscholar_embeddings_dataset")
+    except FileNotFoundError:
+        dataset = build_semanticscholar_offline_dataset()
+        #dataset.with_format("torch")
+        #dataset = dataset.map(semanticscholar_embedding_content)
+        #dataset = dataset.map(lambda b: {'embeddings': embed_parallel(b['content']) }, batched=True, batch_size=250)
+        def embed_fn(b):
+            return embed_batch(embedding_model, b)
+        dataset = dataset.map(embed_fn, batched=True, batch_size=500, num_proc=4)
+        dataset.save_to_disk("semanticscholar_embeddings_dataset")
+
+    def index_fn(b):
+        ds = datasets.Dataset.from_dict(b)
+        vectors = map(get_semanticscholar_record(embedding_model.embedding_model()), ds)
+        # skip missing embeddings
+        filtered_vectors = filter(lambda x: x['values'] is not None, vectors)
+        index.upsert(
+            vectors=filtered_vectors,
+            namespace="semanticscholar-metadata",
+        )
+    #dataset.map(index_fn, batched=True, batch_size=500)
+    # rewrite using concurrent indexes (index not pickable, so cant use .map)
+    with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:
+        batches = dataset.batch(500)
+        for b in batches:
+            executor.submit(index_fn, b)
 
 if __name__ == "__main__":
     #build_arxiv_index()
