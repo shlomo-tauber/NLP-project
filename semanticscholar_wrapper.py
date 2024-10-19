@@ -9,4 +9,8 @@ class SemanticScholarWrapper:
     
     def get_specter_embeddings(self, paper_ids):
         papers = self.client.get_papers(paper_ids, fields=["embedding.specter_v2"])
-        return map(lambda p: p["embedding"]["vector"], papers)
+        def get_embedding_vector(p):
+            if not p.embedding:
+                return None
+            return p.embedding["vector"]
+        return map(get_embedding_vector, papers)
