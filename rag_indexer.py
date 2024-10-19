@@ -35,7 +35,7 @@ def build_arxiv_index():
     )
     print(f"Index {index_name} has been updated with {len(metadatas)} papers.")
 
-def build_semanticscholar_offline_dataset(limit=10000000):
+def build_semanticscholar_offline_dataset(limit=100):
     try:
         ds = datasets.load_from_disk("semanticscholar_dataset")
         return ds
@@ -53,18 +53,18 @@ def build_semanticscholar_offline_dataset(limit=10000000):
                 yield dict(x)
                 datasets.IterableDataset
     ds = datasets.Dataset.from_generator(gen, gen_kwargs={
-        "shards": list(range(2018, 2025)),
+        "shards": list(range(2018, 2019)),
     }, num_proc=4)
     ds.save_to_disk("semanticscholar_dataset")
     return ds
 
 
-def get_semanticscholar_record(row):
+def get_semanticscholar_record(row, embedding):
     filtered_metadata_columns = ["paperId", "title", "fieldsOfStudy"]
     metadata = {k: v for k, v in row.items() if k in filtered_metadata_columns}
     return {
         "id": f"{row['paperId']}#semanticscholar-metadata#scibert",
-        "values": row['embeddings'],
+        "values": embedding, #row['embeddings'],
         "metadata": metadata
     }
 
@@ -72,10 +72,12 @@ def semanticscholar_embedding_content(row):
     content = row['title']
     if 'abstract' in row and row['abstract']:
         content += " " + row['abstract']
-    return { 'content': content }
+    return content
 
 def index_batch(index, b):
-    vectors = map(get_semanticscholar_record, b)
+    ds = datasets.Dataset.from_dict(b)
+    embeddings = embed_parallel([semanticscholar_embedding_content(row) for row in ds])
+    vectors = map(get_semanticscholar_record, ds, embeddings)
     index.upsert(
         vectors=vectors,
         namespace="semanticscholar-metadata",
@@ -87,9 +89,9 @@ def build_semanticscholar_index():
     index = get_or_create_index(pc, index_name, EMBEDDING_DIM)
 
     dataset = build_semanticscholar_offline_dataset()
-    dataset.with_format("torch")
-    dataset = dataset.map(semanticscholar_embedding_content)
-    dataset = dataset.map(lambda b: {'embeddings': embed_parallel(b['content']) }, batched=True, batch_size=250)
+    #dataset.with_format("torch")
+    #dataset = dataset.map(semanticscholar_embedding_content)
+    #dataset = dataset.map(lambda b: {'embeddings': embed_parallel(b['content']) }, batched=True, batch_size=250)
     dataset.map(lambda b: index_batch(index, b), batched=True, batch_size=250)
 
 if __name__ == "__main__":
