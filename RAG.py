@@ -16,92 +16,22 @@ class RAGRetriever:
         query_embedding = self.embedding_model.embed_parallel(query).squeeze()
         vectors = self.index.query(vector=query_embedding.tolist(), namespace="semanticscholar-metadata", top_k=top_k, include_metadata=True)
         return vectors
-    
-
-def get_paper_citation_by_title(title, number_of_citations=10):
-    import arxiv
-    from pylatexenc.latex2text import LatexNodes2Text
-    # Search for the paper using its title
-    res = []
-    search = arxiv.Search(
-        query=title,
-        max_results=number_of_citations,
-        sort_by=arxiv.SortCriterion.Relevance
-    )
-    results = list(search.results())
-
-    if not results:
-        return None, "No paper found with the given title."
-
-    for paper in results:
-        # Extract relevant information
-        title = LatexNodes2Text().latex_to_text(paper.title)
-        authors = ", ".join([author.name for author in paper.authors])
-        year = paper.published.year
-        arxiv_id = paper.get_short_id()
-        url = paper.entry_id
-
-        # Generate the citation
-        citation = f"{authors}. ({year}). {title}. arXiv:{arxiv_id}. Retrieved from {url}"
-        res.append((title, citation))
-    return res
 
 
-def generate_answer(query, titles, pipeline):
-    """
-    Generate an answer based on retrieved Arxiv papers.
-    """
 
-    context = ""
-    # Append the title and citations of the papers to form a context
-    for title in titles:
-        citations = get_paper_citation_by_title(title)
-        context += f"Title: {title}\n"
-        for cite in citations:
-            context += f"citations: {cite[0]}, {cite[1]}\n\n"
-
-    # Prompt model to generate a response using the retrieved context
-    input_prompt = f"What is the paper {query} citations, based on the next papers and citations: {context}\n"
-
-    # # Generate a response
-    sequences = pipeline(
-        input_prompt,
-        do_sample=True,
-        top_k=50,
-        top_p=0.7,
-        num_return_sequences=1,
-        repetition_penalty=1.1,
-        max_new_tokens=500,
-    )
-
-    return sequences
-
-
-def find_citetion_of_query(query):
-    model = "PY007/TinyLlama-1.1B-Chat-v0.1"
-    tokenizer = AutoTokenizer.from_pretrained(model)
-    pipeline = transformers.pipeline(
-        "text-generation",
-        model=model,
-        torch_dtype=torch.float16,
-        device_map="auto",
-    )
-    # create the indexes or use one allready exist
-    index = None
-    titles = retrieve_relevant_papers(query, index)
-    sequences = generate_answer(query, titles, pipeline)
-    filename = f"citetions of {query}"
-    with open(filename, 'w') as file:
-        file.write(sequences['generated_text'] + '\n')
-
-PROMPT_TEMPLATE = "You are given an excerpt from a paper, where a citation was deleted. I'm trying to find the citation (ignore the word [CITATION], that's just where the citation was deleted from. You will be asked to help me find the paper from which the citation was deleted.\n" \
-    "You can ask me a search query and I will try to find related papers. I can't give you more data from the paper, or any data about the cited paper. You have to do it exactly once. After that, you will be asked to provide the citation. If you don't know the citation, you can say 'I don't know'.\n" \
-    "Excerpt: {excerpt}\n"
-
+PROMPT_TEMPLATE = (
+    "You are a scholarly AI assistant helping to identify the source of a missing citation. A citation was deleted from an excerpt, "
+    "indicated by '[CITATION]'. I will provide you with the excerpt, and you need to help me form a query to find the related papers.\n\n"
+    "Rules:\n"
+    "1. Use the context of the excerpt to form a single search query that captures the topic.\n"
+    "2. I will return relevant papers for you to review, and you will then select the one most likely to be the source.\n"
+    "3. If you cannot identify the source, respond with 'I don't know'.\n\n"
+    "Excerpt:\n{excerpt}\n"
+)
 class CitationFinder:
     def __init__(self):
         model_name = "microsoft/Phi-3-mini-128k-instruct"
-        self.model = AutoModelForCausalLM.from_pretrained("microsoft/Phi-3-mini-128k-instruct", trust_remote_code=True, torch_dtype="auto", device_map="auto")
+        self.model = AutoModelForCausalLM.from_pretrained(model_name, trust_remote_code=True, torch_dtype="auto", device_map="auto")
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.pipeline = transformers.pipeline(
             "text-generation",
